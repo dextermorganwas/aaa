@@ -84,29 +84,6 @@ async def home():
     return RedirectResponse('/admin')
 
 
-@app.get('/{art_type}/{spec}')
-async def artwork(art_type: str, spec: str, request: Request):
-    try:
-        kind, ids = parse_art_request(art_type, spec)
-        lookup = Lookup(kind, ids.get('tmdb_id'), ids.get('imdb_id'), ids.get('tvdb_id'))
-        await resolver.resolve(lookup, art_type)
-    except (ValueError, LookupError) as exc:
-        raise HTTPException(404, str(exc))
-    item = await db.upsert_item(lookup)
-    sel = await db.get_selection(item['id'], art_type)
-    if not sel or not sel['local_path'] or not os.path.exists(sel['local_path']):
-        raise HTTPException(404, 'image unavailable')
-    headers = {
-        'Cache-Control': 'public, max-age=604800, stale-while-revalidate=86400',
-        'ETag': '"' + safe_key(sel['provider'], sel['source_url'], os.path.getsize(sel['local_path'])) + '"',
-        'X-Art-Provider': sel['provider'],
-        'X-Art-Source': sel['source_url'] or '',
-        'Last-Modified': formatdate(os.path.getmtime(sel['local_path']), usegmt=True),
-        'Vary': 'Accept',
-    }
-    if request.headers.get('if-none-match') == headers['ETag']:
-        return Response(status_code=304, headers=headers)
-    return FileResponse(sel['local_path'], media_type=sel['content_type'] or 'image/jpeg', headers=headers)
 
 
 @app.get('/admin', response_class=HTMLResponse)
@@ -222,3 +199,29 @@ async def admin_override(request: Request, item_id: int, art_type: str):
     except Exception as exc:
         raise HTTPException(400, str(exc))
     return dict(sel)
+
+
+@app.get('/{art_type}/{spec}')
+async def artwork(art_type: str, spec: str, request: Request):
+    try:
+        kind, ids = parse_art_request(art_type, spec)
+        lookup = Lookup(kind, ids.get('tmdb_id'), ids.get('imdb_id'), ids.get('tvdb_id'))
+        await resolver.resolve(lookup, art_type)
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(404, str(exc))
+    item = await db.upsert_item(lookup)
+    sel = await db.get_selection(item['id'], art_type)
+    if not sel or not sel['local_path'] or not os.path.exists(sel['local_path']):
+        raise HTTPException(404, 'image unavailable')
+    headers = {
+        'Cache-Control': 'public, max-age=604800, stale-while-revalidate=86400',
+        'ETag': '"' + safe_key(sel['provider'], sel['source_url'], os.path.getsize(sel['local_path'])) + '"',
+        'X-Art-Provider': sel['provider'],
+        'X-Art-Source': sel['source_url'] or '',
+        'Last-Modified': formatdate(os.path.getmtime(sel['local_path']), usegmt=True),
+        'Vary': 'Accept',
+    }
+    if request.headers.get('if-none-match') == headers['ETag']:
+        return Response(status_code=304, headers=headers)
+    return FileResponse(sel['local_path'], media_type=sel['content_type'] or 'image/jpeg', headers=headers)
+
