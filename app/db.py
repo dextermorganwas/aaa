@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS items (
   tvdb_id TEXT NOT NULL DEFAULT '',
   title TEXT,
   original_language TEXT,
+  release_year INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE(media_type, tmdb_id, imdb_id, tvdb_id)
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS selections (
   selected_at TEXT NOT NULL,
   expires_at TEXT,
   is_override INTEGER NOT NULL DEFAULT 0,
+  resolver_version INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(item_id, art_type),
   FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
 );
@@ -67,27 +69,40 @@ class Database:
         self.db = await aiosqlite.connect(self.path)
         self.db.row_factory = aiosqlite.Row
         await self.db.executescript(SCHEMA)
+        await self._migrate()
         await self.db.commit()
+
+    async def _migrate(self):
+        # SQLite schemas from earlier starter versions do not have these columns.
+        cur = await self.db.execute("PRAGMA table_info(items)")
+        item_cols = {row[1] for row in await cur.fetchall()}
+        if 'release_year' not in item_cols:
+            await self.db.execute('ALTER TABLE items ADD COLUMN release_year INTEGER')
+        cur = await self.db.execute("PRAGMA table_info(selections)")
+        selection_cols = {row[1] for row in await cur.fetchall()}
+        if 'resolver_version' not in selection_cols:
+            await self.db.execute('ALTER TABLE selections ADD COLUMN resolver_version INTEGER NOT NULL DEFAULT 0')
 
     async def close(self):
         if self.db:
             await self.db.close()
 
-    async def upsert_item(self, lookup, title=None, original_language=None):
+    async def upsert_item(self, lookup, title=None, original_language=None, release_year=None):
         now = datetime.now(timezone.utc).isoformat()
         identity = lookup.tmdb_id or lookup.imdb_id or lookup.tvdb_id or ''
         canonical_key = safe_key(lookup.media_type, identity)
         # Prefer the strongest available identity when possible so a request that starts with only TMDB
         # can later be enriched with IMDb/TVDB IDs without creating a second item.
-        vals=(canonical_key, lookup.media_type, lookup.tmdb_id or '', lookup.imdb_id or '', lookup.tvdb_id or '', title, original_language, now, now)
-        q = '''INSERT INTO items(canonical_key,media_type,tmdb_id,imdb_id,tvdb_id,title,original_language,created_at,updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?)
+        vals=(canonical_key, lookup.media_type, lookup.tmdb_id or '', lookup.imdb_id or '', lookup.tvdb_id or '', title, original_language, release_year, now, now)
+        q = '''INSERT INTO items(canonical_key,media_type,tmdb_id,imdb_id,tvdb_id,title,original_language,release_year,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(canonical_key) DO UPDATE SET
                tmdb_id=CASE WHEN excluded.tmdb_id<>'' THEN excluded.tmdb_id ELSE items.tmdb_id END,
                imdb_id=CASE WHEN excluded.imdb_id<>'' THEN excluded.imdb_id ELSE items.imdb_id END,
                tvdb_id=CASE WHEN excluded.tvdb_id<>'' THEN excluded.tvdb_id ELSE items.tvdb_id END,
                title=COALESCE(excluded.title, items.title),
                original_language=COALESCE(excluded.original_language, items.original_language),
+               release_year=COALESCE(excluded.release_year, items.release_year),
                updated_at=excluded.updated_at'''
         await self.db.execute(q, vals)
         await self.db.commit()
@@ -98,14 +113,14 @@ class Database:
         cur = await self.db.execute('SELECT * FROM selections WHERE item_id=? AND art_type=?', (item_id, art_type))
         return await cur.fetchone()
 
-    async def set_selection(self, item_id, art_type, provider, source_url, local_path, content_type, expires_at=None, override=False):
+    async def set_selection(self, item_id, art_type, provider, source_url, local_path, content_type, expires_at=None, override=False, resolver_version=0):
         now = datetime.now(timezone.utc).isoformat()
-        await self.db.execute('''INSERT INTO selections(item_id,art_type,provider,source_url,local_path,content_type,selected_at,expires_at,is_override)
-          VALUES(?,?,?,?,?,?,?,?,?)
+        await self.db.execute('''INSERT INTO selections(item_id,art_type,provider,source_url,local_path,content_type,selected_at,expires_at,is_override,resolver_version)
+          VALUES(?,?,?,?,?,?,?,?,?,?)
           ON CONFLICT(item_id,art_type) DO UPDATE SET provider=excluded.provider,source_url=excluded.source_url,
           local_path=excluded.local_path,content_type=excluded.content_type,selected_at=excluded.selected_at,
-          expires_at=excluded.expires_at,is_override=excluded.is_override''',
-          (item_id, art_type, provider, source_url, local_path, content_type, now, expires_at, int(override)))
+          expires_at=excluded.expires_at,is_override=excluded.is_override,resolver_version=excluded.resolver_version''',
+          (item_id, art_type, provider, source_url, local_path, content_type, now, expires_at, int(override), int(resolver_version)))
         await self.db.commit()
 
     async def clear_selection(self, item_id, art_type):

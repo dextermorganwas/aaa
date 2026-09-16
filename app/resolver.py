@@ -44,16 +44,20 @@ class Resolver:
     async def _resolve(self,key,lookup,art_type):
         item=await self.db.upsert_item(lookup)
         selection=await self.db.get_selection(item['id'],art_type)
+        if selection and selection['provider'] == 'theposterdb' and int(selection['resolver_version'] or 0) < self.settings.tpdb_matcher_version:
+            selection = None
         if selection and selection['local_path'] and (selection['is_override'] or self._valid_selection(selection)):
             return Resolution(lookup.media_type,art_type,Candidate(selection['provider'],selection['source_url'] or '',kind=art_type),item['title'],item['original_language'],selection['source_url'],selection['content_type'] or 'image/jpeg')
 
-        title=item['title']; original_lang=item['original_language']
+        title=item['title']; original_lang=item['original_language']; release_year=item['release_year']
         if not title or not original_lang:
             try:
                 data, lookup = await self.tmdb.metadata(lookup)
                 title=title or data.get('title') or data.get('name')
                 original_lang=original_lang or normalize_lang(data.get('original_language'))
-                item=await self.db.upsert_item(lookup,title,original_lang)
+                release_date=data.get('release_date') or data.get('first_air_date') or ''
+                release_year = release_year or (int(release_date[:4]) if len(release_date) >= 4 and release_date[:4].isdigit() else None)
+                item=await self.db.upsert_item(lookup,title,original_lang,release_year)
             except Exception as exc:
                 await self.db.record_failure('tmdb',key,str(exc))
 
@@ -62,7 +66,7 @@ class Resolver:
         if art_type=='poster' and self.settings.tpdb_background_refresh:
             try:
                 async with asyncio.timeout(self.settings.tpdb_timeout_seconds):
-                    tp=self._tpdb_candidates(title,item and item['title'],lookup,art_type)
+                    tp=self._tpdb_candidates(title, item and item['title'], lookup, art_type, release_year)
                     tp_candidates=await tp
                 candidates.extend(tp_candidates)
             except Exception as exc:
@@ -72,7 +76,7 @@ class Resolver:
         elif art_type=='poster':
             try:
                 async with asyncio.timeout(self.settings.tpdb_timeout_seconds):
-                    candidates.extend(await self.tpdb.candidates(title,None,lookup.media_type))
+                    candidates.extend(await self.tpdb.candidates(title, release_year, lookup.media_type, lookup))
             except Exception as exc:
                 await self.db.record_failure('theposterdb',key,str(exc))
 
@@ -107,12 +111,14 @@ class Resolver:
 
         raise LookupError('no artwork found')
 
-    async def _tpdb_candidates(self,title,_,lookup,art_type):
-        return await self.tpdb.candidates(title,None,lookup.media_type)
+    async def _tpdb_candidates(self,title,_,lookup,art_type,year=None):
+        return await self.tpdb.candidates(title, year, lookup.media_type, lookup)
 
     async def _background_tpdb(self,item_id,lookup,title,key,art_type):
         try:
-            candidates=await self.tpdb.candidates(title,None,lookup.media_type)
+            item = await self.db.get_item(item_id)
+            year = item['release_year'] if item else None
+            candidates=await self.tpdb.candidates(title, year, lookup.media_type, lookup)
             if not candidates: return
             await self.db.save_candidates(item_id,art_type,candidates)
             selection=await self.db.get_selection(item_id,art_type)
@@ -145,7 +151,7 @@ class Resolver:
         try:
             if path.exists() and path.stat().st_size>0:
                 ctype=mimetypes.guess_type(path.name)[0] or 'image/jpeg'
-                await self.db.set_selection(item_id,art_type,candidate.provider,candidate.url,str(path),ctype,self._expiry(candidate),False)
+                await self.db.set_selection(item_id,art_type,candidate.provider,candidate.url,str(path),ctype,self._expiry(candidate),False,self.settings.tpdb_matcher_version)
                 return Resolution('',art_type,candidate,fetched_url=candidate.url,content_type=ctype)
             async with self.client.stream('GET',candidate.url,headers={'User-Agent':'Mozilla/5.0 (StremioArtProxy)'},timeout=self.settings.http_timeout_seconds) as r:
                 r.raise_for_status()
@@ -158,7 +164,7 @@ class Resolver:
                         f.write(chunk)
                 tmp.replace(path)
                 ctype=r.headers.get('content-type','').split(';')[0] or mimetypes.guess_type(path.name)[0] or 'image/jpeg'
-            await self.db.set_selection(item_id,art_type,candidate.provider,candidate.url,str(path),ctype,self._expiry(candidate),False)
+            await self.db.set_selection(item_id,art_type,candidate.provider,candidate.url,str(path),ctype,self._expiry(candidate),False,self.settings.tpdb_matcher_version)
             await self.db.clear_failure(candidate.provider,safe_key(item_id,art_type))
             return Resolution('',art_type,candidate,fetched_url=candidate.url,content_type=ctype)
         except Exception as exc:
@@ -190,7 +196,7 @@ class Resolver:
         data=[]
         title=item['title']
         if art_type=='poster' and title:
-            try:data += await self.tpdb.candidates(title,None,item['media_type'])
+            try:data += await self.tpdb.candidates(title, None, item['media_type'], lookup)
             except Exception: pass
         if art_type in ('poster','backdrop','logo'):
             for lang,textless in [('en',art_type=='backdrop'),(normalize_lang(item['original_language']),art_type=='backdrop')]:
@@ -219,5 +225,5 @@ class Resolver:
         hit=await self._materialize(item_id,art_type,c,allow_replace=True)
         if not hit: raise ValueError('could not download selected artwork')
         sel=await self.db.get_selection(item_id,art_type)
-        await self.db.set_selection(item_id,art_type,provider,candidate_url,sel['local_path'],sel['content_type'],None,True)
+        await self.db.set_selection(item_id,art_type,provider,candidate_url,sel['local_path'],sel['content_type'],None,True,self.settings.tpdb_matcher_version)
         return sel
