@@ -19,9 +19,11 @@ class Settings(BaseSettings):
     tmdb_logo_size: str = 'original'
 
     http_timeout_seconds: float = 6.0
-    tpdb_timeout_seconds: float = 1.25
+    tpdb_timeout_seconds: float = 4.0
     tpdb_background_refresh: bool = True
-    tpdb_request_interval_seconds: float = 1.0
+    tpdb_search_pages: int = 2
+    tpdb_max_targets: int = 8
+    tpdb_matcher_version: int = 2
     max_retries: int = 2
     retry_backoff_seconds: float = 0.35
     max_concurrent_provider_requests: int = 8

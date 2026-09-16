@@ -10,3 +10,9 @@ def test_parse_aiometadata_url():
 def test_parse_series():
     kind, ids = parse_art_request('backdrop','tmdb:series:1399&imdb:tt0944947&tvdb:121361.jpg')
     assert kind=='series'; assert ids['tmdb_id']=='1399'; assert ids['tvdb_id']=='121361'
+
+
+def test_metahub_backdrop_uses_background_endpoint():
+    from app.providers.metahub import MetaHubProvider
+    result = MetaHubProvider().candidates('tt1234567', 'backdrop')
+    assert result[0].url == 'https://images.metahub.space/background/medium/tt1234567/img'
