@@ -18,4 +18,6 @@ USER appuser
 
 EXPOSE 8099
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8099", "--proxy-headers"]
+# Use the Python interpreter directly instead of relying on the console-script
+# launcher. This also makes the container easier to diagnose across platforms.
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8099", "--proxy-headers"]

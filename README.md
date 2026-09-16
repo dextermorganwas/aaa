@@ -195,3 +195,7 @@ The admin refresh screen is the place to inspect the candidates that the provide
 - Put the admin UI behind your reverse proxy and/or set `ADMIN_TOKEN`.
 - If the app is Internet-facing, strongly consider using your reverse proxy for HTTPS and an additional authentication layer.
 - The image proxy is intentionally restricted to known provider domains; it is not a generic SSRF proxy.
+
+### Docker architecture
+
+The GHCR workflow publishes both `linux/amd64` and `linux/arm64` images. Docker automatically selects the matching image variant for the host architecture. On the server, `uname -m` should report `x86_64` for amd64 or `aarch64` for arm64.
