@@ -33,7 +33,9 @@ class Settings(BaseSettings):
     negative_cache_ttl_seconds: int = 900
 
     admin_enabled: bool = True
-    admin_token: str = 'change-me'
+    admin_token: str = ''
+    admin_session_hours: int = 12
+    admin_cookie_secure: bool = False
 
     @property
     def db_path(self) -> Path:
