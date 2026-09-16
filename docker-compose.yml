@@ -8,14 +8,15 @@ services:
     pids_limit: ${PIDS_LIMIT:-128}
     env_file:
       - .env
-    ports:
-      - "8099:8099"
+    network_mode: host
     volumes:
       - ${DOCKER_DATA_DIR:-./data}/art-proxy:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/health', timeout=3)"]
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT', '8099'), timeout=3)"
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-
