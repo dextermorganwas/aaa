@@ -12,12 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY tests ./tests
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN mkdir -p /data && chown -R appuser:appuser /app /data
-USER appuser
 
 EXPOSE 8099
 
-# Use the Python interpreter directly instead of relying on the console-script
-# launcher. This also makes the container easier to diagnose across platforms.
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8099", "--proxy-headers"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

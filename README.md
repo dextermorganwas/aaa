@@ -199,3 +199,8 @@ The admin refresh screen is the place to inspect the candidates that the provide
 ### Docker architecture
 
 The GHCR workflow publishes both `linux/amd64` and `linux/arm64` images. Docker automatically selects the matching image variant for the host architecture. On the server, `uname -m` should report `x86_64` for amd64 or `aarch64` for arm64.
+
+
+### Persistent data
+
+Compose stores application data in `${DOCKER_DATA_DIR:-./data}/art-proxy` on the host and mounts it at `/data` in the container. If your server already defines `DOCKER_DATA_DIR` in its `.env`, use that existing value; no UID/GID setup is required for normal local bind mounts.
