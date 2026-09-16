@@ -16,7 +16,10 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install -r requirements.txt pytest
-      - run: pytest -q
+      - name: Run tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q
 
   publish:
     needs: test
